@@ -14,7 +14,7 @@ import {
   Bounds,
 } from "@react-three/drei";
 import { RefObject, Suspense, useEffect, useRef, useState } from "react";
-import { Text, Input, Root } from "@react-three/uikit";
+import { Text, Input, Root, Image } from "@react-three/uikit";
 import * as THREE from "three";
 
 interface ModelProps {
@@ -64,20 +64,29 @@ function Model({ url, onModelClick, color }: ModelProps) {
 
 interface AnnotationProps {
   positionRef: RefObject<number[]>;
-  textRef: RefObject<string>;
+  contentRef: RefObject<string>;
   modelRef: RefObject<THREE.Group>;
+  isImage: boolean;
+  onDelete: () => void;
+  onTypeChange: (isImage: boolean, newContent?: string) => void; // Updated to include new content
 }
 
-function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
+function Annotation({
+  positionRef,
+  contentRef,
+  modelRef,
+  isImage,
+  onDelete,
+  onTypeChange,
+}: AnnotationProps) {
   const [isEditing, setIsEditing] = useState(false);
-  const [text, setText] = useState(textRef.current);
+  const [content, setContent] = useState(contentRef.current);
   const pivotRef = useRef<THREE.Mesh>(null);
-  const textMeshRef = useRef<THREE.Group>(null);
+  const contentMeshRef = useRef<THREE.Group>(null);
   const lineRef = useRef<any>(null);
   const { raycaster, camera, pointer } = useThree();
 
-  // Separate ref for text position, initialized with an offset from pivot
-  const textPositionRef = useRef<number[]>([
+  const contentPositionRef = useRef<number[]>([
     positionRef.current[0] + 5,
     positionRef.current[1],
     positionRef.current[2] + 5,
@@ -85,42 +94,63 @@ function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
 
   const positions = useRef(new Float32Array(6));
 
-  const handlePivotDrag = (event: any) => {
+  const handlePivotDrag = () => {
     if (!pivotRef.current || !modelRef.current) return;
 
     raycaster.setFromCamera(pointer, camera);
     const intersects = raycaster.intersectObject(modelRef.current, true);
 
     if (intersects.length > 0) {
-      const point = intersects[0].point;
-      pivotRef.current.position
-        .copy(point)
-        .add(intersects[0].normal.multiplyScalar(0.01));
-      positionRef.current = [point.x, point.y, point.z];
+      const intersection = intersects[0];
+      const point = intersection.point;
+      const normal = intersection.normal;
+
+      const offsetDistance = 0.05;
+      const newPosition = point
+        .clone()
+        .add(normal.multiplyScalar(offsetDistance));
+
+      pivotRef.current.position.copy(newPosition);
+      positionRef.current = [newPosition.x, newPosition.y, newPosition.z];
     }
   };
 
-  const handleTextDrag = (event: any) => {
-    if (!textMeshRef.current) return;
-    // Update textPositionRef based on the dragged position
-    const newPos = textMeshRef.current.position;
-    textPositionRef.current = [newPos.x, newPos.y, newPos.z];
+  const handleContentDrag = (event: any) => {
+    if (!contentMeshRef.current) return;
+    const newPos = contentMeshRef.current.position;
+    contentPositionRef.current = [newPos.x, newPos.y, newPos.z];
+  };
+
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setContent(url);
+      contentRef.current = url;
+      onTypeChange(true, url); // Update type and content
+      setIsEditing(false);
+    }
+  };
+
+  const handleTextChange = (value: string) => {
+    setContent(value);
+    contentRef.current = value;
   };
 
   useFrame(() => {
-    if (pivotRef.current && textMeshRef.current && lineRef.current) {
+    if (pivotRef.current && contentMeshRef.current && lineRef.current) {
       const pivotWorldPos = new THREE.Vector3();
-      const textWorldPos = new THREE.Vector3();
+      const contentWorldPos = new THREE.Vector3();
 
       pivotRef.current.getWorldPosition(pivotWorldPos);
-      textMeshRef.current.getWorldPosition(textWorldPos);
+      contentMeshRef.current.getWorldPosition(contentWorldPos);
 
       positions.current[0] = pivotWorldPos.x;
       positions.current[1] = pivotWorldPos.y;
       positions.current[2] = pivotWorldPos.z;
-      positions.current[3] = textWorldPos.x;
-      positions.current[4] = textWorldPos.y;
-      positions.current[5] = textWorldPos.z;
+      positions.current[3] = contentWorldPos.x;
+      positions.current[4] = contentWorldPos.y;
+      positions.current[5] = contentWorldPos.z;
 
       const positionAttribute = lineRef.current.geometry.attributes.position;
       positionAttribute.array.set(positions.current);
@@ -155,11 +185,11 @@ function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
 
       <DragControls
         dragConfig={{ enabled: !isEditing }}
-        onDrag={handleTextDrag}
+        onDrag={handleContentDrag}
       >
         <Billboard
-          ref={textMeshRef}
-          position={textPositionRef.current as [number, number, number]}
+          ref={contentMeshRef}
+          position={contentPositionRef.current as [number, number, number]}
         >
           <mesh>
             <Root
@@ -167,13 +197,33 @@ function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
               padding={4}
               borderRadius={4}
             >
-              {isEditing ? (
+              {isImage ? (
+                <>
+                  <Image
+                    src={content || "https://via.placeholder.com/150"}
+                    width={150}
+                    height={150}
+                    objectFit="cover"
+                  />
+                  <Text
+                    onClick={onDelete}
+                    color="red"
+                    fontSize={32}
+                    positionType="relative"
+                    marginTop={-100}
+                    marginLeft={20}
+                    fontWeight={"bold"}
+                  >
+                    Delete
+                  </Text>
+                </>
+              ) : isEditing ? (
                 <>
                   <Input
-                    value={text}
+                    value={content}
                     onValueChange={(value: string) => {
-                      setText(value);
-                      textRef.current = value;
+                      setContent(value);
+                      contentRef.current = value;
                     }}
                     fontSize={48}
                     padding={12}
@@ -200,7 +250,7 @@ function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
                     padding={12}
                     borderRadius={8}
                   >
-                    {text || "Annotation"}
+                    {content || "Annotation"}
                   </Text>
                   <Text
                     onClick={() => setIsEditing(true)}
@@ -208,9 +258,21 @@ function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
                     fontSize={32}
                     positionType="relative"
                     marginTop={-30}
+                    marginLeft={20}
                     fontWeight={"bold"}
                   >
                     Edit
+                  </Text>
+                  <Text
+                    onClick={onDelete}
+                    color="red"
+                    fontSize={32}
+                    positionType="relative"
+                    marginTop={-30}
+                    marginLeft={20}
+                    fontWeight={"bold"}
+                  >
+                    Delete
                   </Text>
                 </>
               )}
@@ -224,17 +286,22 @@ function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
 
 export default function App() {
   const [modelUrlRef, setModelUrlRef] = useState<string | null>(null);
-  const [modelColor, setModelColor] = useState<string>("#ffffff");
+  const [modelColor, setModelColor] = useState<string>("cyan");
   const annotationsRef = useRef<
     {
       positionRef: RefObject<number[]>;
-      textRef: RefObject<string>;
+      contentRef: RefObject<string>;
       modelRef: RefObject<THREE.Group>;
+      isImage: boolean;
     }[]
   >([]);
   const cameraRef = useRef<THREE.Camera>(null);
   const originalCameraPosition = useRef(new THREE.Vector3(0, 0, 20));
   const [modelLoaded, setModelLoaded] = useState(false);
+  const [showSelectionPanel, setShowSelectionPanel] = useState(false);
+  const [pendingPoint, setPendingPoint] = useState<THREE.Vector3 | null>(null);
+  const [pendingModelRef, setPendingModelRef] =
+    useState<RefObject<THREE.Group> | null>(null);
   const [, setAnnotationCount] = useState(0);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -250,12 +317,60 @@ export default function App() {
     modelRef: RefObject<THREE.Group>
   ) => {
     console.log("Model clicked at:", point);
+    setPendingPoint(point);
+    setPendingModelRef(modelRef);
+    setShowSelectionPanel(true);
+  };
+
+  const handleTextSelection = () => {
+    if (!pendingPoint || !pendingModelRef) return;
     annotationsRef.current.push({
-      positionRef: { current: [point.x, point.y, point.z] },
-      textRef: { current: "Annotation" },
-      modelRef,
+      positionRef: {
+        current: [pendingPoint.x, pendingPoint.y, pendingPoint.z],
+      },
+      contentRef: { current: "Annotation" },
+      modelRef: pendingModelRef,
+      isImage: false,
     });
     setAnnotationCount(annotationsRef.current.length);
+    setShowSelectionPanel(false);
+    setPendingPoint(null);
+    setPendingModelRef(null);
+  };
+
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && pendingModelRef && pendingPoint) {
+      const url = URL.createObjectURL(file);
+      annotationsRef.current.push({
+        positionRef: {
+          current: [pendingPoint.x, pendingPoint.y, pendingPoint.z],
+        },
+        contentRef: { current: url },
+        modelRef: pendingModelRef,
+        isImage: true,
+      });
+      setAnnotationCount(annotationsRef.current.length);
+      setShowSelectionPanel(false);
+      setPendingPoint(null);
+      setPendingModelRef(null);
+    }
+  };
+
+  const handleDelete = (index: number) => {
+    annotationsRef.current.splice(index, 1);
+    setAnnotationCount(annotationsRef.current.length);
+  };
+
+  const handleTypeChange = (
+    index: number,
+    isImage: boolean,
+    newContent?: string
+  ) => {
+    annotationsRef.current[index].isImage = isImage;
+    annotationsRef.current[index].contentRef.current =
+      newContent || (isImage ? null : "Annotation");
+    setAnnotationCount(annotationsRef.current.length); // Force re-render
   };
 
   const handleColorChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -290,6 +405,72 @@ export default function App() {
           cursor: "pointer",
         }}
       />
+      {showSelectionPanel && (
+        <div
+          style={{
+            position: "absolute",
+            zIndex: 2,
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            backgroundColor: "white",
+            padding: "20px",
+            borderRadius: "8px",
+            boxShadow: "0 0 10px rgba(0,0,0,0.5)",
+            textAlign: "center",
+          }}
+        >
+          <h3 style={{ marginBottom: "15px" }}>Add Annotation</h3>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+          >
+            <button
+              onClick={handleTextSelection}
+              style={{
+                padding: "10px 20px",
+                backgroundColor: "#4CAF50",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              Add Text
+            </button>
+            <label
+              style={{
+                padding: "10px 20px",
+                backgroundColor: "#2196F3",
+                color: "white",
+                borderRadius: "4px",
+                cursor: "pointer",
+                display: "inline-block",
+              }}
+            >
+              Add Image
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                style={{ display: "none" }}
+              />
+            </label>
+            <button
+              onClick={() => setShowSelectionPanel(false)}
+              style={{
+                padding: "10px 20px",
+                backgroundColor: "#ff4444",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       <Canvas
         shadows
         orthographic
@@ -324,8 +505,13 @@ export default function App() {
             <Suspense key={index} fallback={null}>
               <Annotation
                 positionRef={annotation.positionRef}
-                textRef={annotation.textRef}
+                contentRef={annotation.contentRef}
                 modelRef={annotation.modelRef}
+                isImage={annotation.isImage}
+                onDelete={() => handleDelete(index)}
+                onTypeChange={(isImage, newContent) =>
+                  handleTypeChange(index, isImage, newContent)
+                }
               />
             </Suspense>
           ))}
