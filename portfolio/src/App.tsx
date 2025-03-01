@@ -23,7 +23,7 @@ interface ModelProps {
     point: THREE.Vector3,
     modelRef: RefObject<THREE.Group>
   ) => void;
-  color: string; // New prop for color
+  color: string;
 }
 
 function Model({ url, onModelClick, color }: ModelProps) {
@@ -33,7 +33,6 @@ function Model({ url, onModelClick, color }: ModelProps) {
   useEffect(() => {
     if (groupRef.current) {
       groupRef.current.userData.isModel = true;
-      // Update material color for all meshes in the model
       groupRef.current.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           const material = child.material as THREE.MeshStandardMaterial;
@@ -43,7 +42,7 @@ function Model({ url, onModelClick, color }: ModelProps) {
         }
       });
     }
-  }, [color]); // Re-run when color changes
+  }, [color]);
 
   return (
     <Center>
@@ -77,9 +76,16 @@ function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
   const lineRef = useRef<any>(null);
   const { raycaster, camera, pointer } = useThree();
 
+  // Separate ref for text position, initialized with an offset from pivot
+  const textPositionRef = useRef<number[]>([
+    positionRef.current[0] + 5,
+    positionRef.current[1],
+    positionRef.current[2] + 5,
+  ]);
+
   const positions = useRef(new Float32Array(6));
 
-  const handleDrag = (event: any) => {
+  const handlePivotDrag = (event: any) => {
     if (!pivotRef.current || !modelRef.current) return;
 
     raycaster.setFromCamera(pointer, camera);
@@ -92,6 +98,13 @@ function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
         .add(intersects[0].normal.multiplyScalar(0.01));
       positionRef.current = [point.x, point.y, point.z];
     }
+  };
+
+  const handleTextDrag = (event: any) => {
+    if (!textMeshRef.current) return;
+    // Update textPositionRef based on the dragged position
+    const newPos = textMeshRef.current.position;
+    textPositionRef.current = [newPos.x, newPos.y, newPos.z];
   };
 
   useFrame(() => {
@@ -118,7 +131,7 @@ function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
 
   return (
     <group>
-      <DragControls onDrag={handleDrag}>
+      <DragControls onDrag={handlePivotDrag}>
         <mesh
           ref={pivotRef}
           position={positionRef.current as [number, number, number]}
@@ -140,16 +153,13 @@ function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
         <lineBasicMaterial color="red" linewidth={3} />
       </line>
 
-      <DragControls dragConfig={{ enabled: !isEditing }}>
+      <DragControls
+        dragConfig={{ enabled: !isEditing }}
+        onDrag={handleTextDrag}
+      >
         <Billboard
           ref={textMeshRef}
-          position={
-            [
-              positionRef.current[0] + 0.5,
-              positionRef.current[1],
-              positionRef.current[2] + 0.5,
-            ] as [number, number, number]
-          }
+          position={textPositionRef.current as [number, number, number]}
         >
           <mesh>
             <Root
@@ -214,7 +224,7 @@ function Annotation({ positionRef, textRef, modelRef }: AnnotationProps) {
 
 export default function App() {
   const [modelUrlRef, setModelUrlRef] = useState<string | null>(null);
-  const [modelColor, setModelColor] = useState<string>("#ffffff"); // Default white
+  const [modelColor, setModelColor] = useState<string>("#ffffff");
   const annotationsRef = useRef<
     {
       positionRef: RefObject<number[]>;
@@ -306,7 +316,7 @@ export default function App() {
               <Model
                 url={modelUrlRef}
                 onModelClick={handleModelClick}
-                color={modelColor} // Pass the selected color
+                color={modelColor}
               />
             )}
           </Suspense>
